@@ -24,7 +24,6 @@ export CROSS_COMPILE_ARM32="arm-linux-androideabi-"
 
 BUILD="make O=$OUT_DIR \
 CC=clang \
-HOSTCC=gcc \
 LD=ld.lld \
 AS=llvm-as \
 AR=llvm-ar \
