@@ -792,6 +792,9 @@ KBUILD_CFLAGS += $(call cc-option, -mllvm -disable-struct-const-merge)
 KBUILD_CFLAGS += $(call cc-disable-warning, builtin-macro-redefined)
 KBUILD_CFLAGS += $(call cc-disable-warning, address-of-packed-member)
 
+# sybau for now
+KBUILD_CFLAGS += $(call cc-disable-warning, unused-variable)
+
 KBUILD_CFLAGS += $(call cc-option, -fcatch-undefined-behavior)
 endif
 
