@@ -3,7 +3,7 @@
  * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  */
 
-#define pr_fmt(fmt)
+#define pr_fmt(fmt) "QCOM-STEPCHG: %s: " fmt, __func__
 
 #include <linux/delay.h>
 #include <linux/module.h>
@@ -17,11 +17,6 @@
 #define STEP_CHG_VOTER		"STEP_CHG_VOTER"
 #define STEP_BMS_CHG_VOTER	"STEP_BMS_CHG_VOTER"
 #define JEITA_VOTER		"JEITA_VOTER"
-
-#undef pr_info
-#undef pr_err
-#define pr_info pr_debug
-#define pr_err pr_debug
 
 #define is_between(left, right, value) \
 		(((left) >= (right) && (left) >= (value) \
@@ -432,16 +427,15 @@ static int get_step_chg_jeita_setting_from_profile(struct step_chg_info *chip)
 	chip->jeita_warm_th = BATT_WARM_THRESHOLD;
 	rc = of_property_read_u32(profile_node, "qcom,jeita-warm-th",
 					&chip->jeita_warm_th);
-	if (rc < 0) {
+	if (rc < 0)
 		pr_err("do not use dtsi config and set jeita warm to invaled\n");
-	}
 
 	chip->jeita_cool_th = BATT_COOL_THRESHOLD;
 	rc = of_property_read_u32(profile_node, "qcom,jeita-cool-th",
 					&chip->jeita_cool_th);
-	if (rc < 0) {
+	if (rc < 0)
 		pr_err("do not use dtsi config and set jeita cool to invaled\n");
-	}
+
 	chip->use_bq_pump =
 			of_property_read_bool(profile_node, "qcom,use-bq-pump");
 
@@ -753,7 +747,7 @@ static int handle_step_chg_config(struct step_chg_info *chip)
 			vote(chip->fcc_votable, STEP_BMS_CHG_VOTER, false, pval.intval);
 		fcc_ua = pval.intval;
 
-		pr_info("bms step charge fcc:%d fv:%d, effective_fv:%d\n", fcc_ua, fv_uv,get_effective_result(chip->fv_votable));
+		pr_info("bms step charge fcc:%d fv:%d, effective_fv:%d\n", fcc_ua, fv_uv, get_effective_result(chip->fv_votable));
 	}
 
 update_time:
@@ -955,7 +949,7 @@ static int handle_jeita(struct step_chg_info *chip)
 			goto update_time;
 	}
 
-	if(chip->jeita_hot_th >= 0 && chip->jeita_cold_th >= (-100)) {
+	if (chip->jeita_hot_th >= 0 && chip->jeita_cold_th >= (-100)) {
 		if (temp >= chip->jeita_hot_th ||
 				temp <= chip->jeita_cold_th) {
 			pr_info("sw-jeita: temp is :%d, stop charing\n", temp);
@@ -966,9 +960,8 @@ static int handle_jeita(struct step_chg_info *chip)
 	}
 
 	if (!chip->use_bq_pump) {
-		if (temp <= chip->jeita_cool_th || temp >= chip->jeita_warm_th) {
+		if (temp <= chip->jeita_cool_th || temp >= chip->jeita_warm_th)
 			vote(chip->cp_disable_votable, JEITA_VOTER, true, 0);
-		}
 		else
 			vote(chip->cp_disable_votable, JEITA_VOTER, false, 0);
 	}

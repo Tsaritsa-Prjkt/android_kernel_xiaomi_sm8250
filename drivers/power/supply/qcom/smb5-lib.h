@@ -101,7 +101,6 @@ enum print_reason {
 #define BBC_CHARGER_VOTER		"BBC_CHARGER_VOTER"
 #define QC2_UNSUPPORTED_VOTER		"QC2_UNSUPPORTED_VOTER"
 #define THERMAL_FCC_OVERRIDE_VOTER  "THERMAL_FCC_OVERRIDE_VOTER"
-#define BYPASS_VOTER			"BYPASS_VOTER"
 /* use for QC3P5 */
 #define QC3P5_VOTER			"QC3P5_VOTER"
 #define FCC_MAX_QC3P5_VOTER		"FCC_MAX_QC3P5_VOTER"
@@ -716,6 +715,7 @@ struct smb_charger {
 	struct delayed_work	cc_un_compliant_charge_work;
 	struct delayed_work	clean_cp_to_sw_work;
 	struct delayed_work     check_init_boot;
+	struct delayed_work     check_sc8551_work;
 
 	struct alarm		lpd_recheck_timer;
 	struct alarm		moisture_protection_alarm;

@@ -25,11 +25,6 @@
 #include "step-chg-jeita.h"
 #include "schgm-flash.h"
 
-#undef pr_info
-#undef pr_err
-#define pr_info pr_debug
-#define pr_err pr_debug
-
 static struct smb_params smb5_pmi632_params = {
 	.fcc			= {
 		.name   = "fast charge current",
@@ -237,7 +232,7 @@ struct smb5 {
 
 static struct smb_charger *__smbchg;
 
-static int __debug_mask = 0;
+static int __debug_mask = PR_MISC | PR_WLS | PR_OEM | PR_PARALLEL;
 
 static ssize_t pd_disabled_show(struct device *dev, struct device_attribute
 				*attr, char *buf)
@@ -1514,16 +1509,7 @@ static int smb5_usb_get_prop(struct power_supply *psy,
 		val->intval = get_client_vote(chg->usb_icl_votable, PD_VOTER);
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
-		if (smblib_get_fastcharge_mode(chg))
-    	#if defined(CONFIG_BOARD_CAS) || defined(CONFIG_BOARD_MUNCH)
-			val->intval = 12000000;
-	#elif defined CONFIG_BOARD_CMI
-			val->intval = 10000000;
-	#else
-			val->intval = 6000000;
-	#endif
-		else
-			rc = smblib_get_prop_input_current_max(chg, val);
+		rc = smblib_get_prop_input_current_max(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_TYPE:
 		val->intval = POWER_SUPPLY_TYPE_USB_PD;
@@ -1808,10 +1794,10 @@ static int smb5_usb_set_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_FASTCHARGE_MODE:
 		rc = smblib_set_fastcharge_mode(chg, val->intval);
 		power_supply_changed(chg->usb_psy);
-		queue_delayed_work(system_power_efficient_wq, &chg->report_soc_decimal_work,
+		schedule_delayed_work(&chg->report_soc_decimal_work,
 				msecs_to_jiffies(REPORT_SOC_DECIMAL_MS));
 		if (chg->ext_fg && chg->step_chg_enabled)
-			queue_delayed_work(system_power_efficient_wq, &chg->step_charge_notify_work,
+			schedule_delayed_work(&chg->step_charge_notify_work,
 					msecs_to_jiffies(2000));
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
@@ -1935,7 +1921,7 @@ static int smb5_usb_port_get_prop(struct power_supply *psy,
 		rc = smblib_get_prop_input_current_settled(chg, val);
 		break;
 	default:
-		pr_err("Get prop %d is not supported in pc_port\n",
+		pr_err_ratelimited("Get prop %d is not supported in pc_port\n",
 				psp);
 		return -EINVAL;
 	}
@@ -1956,7 +1942,7 @@ static int smb5_usb_port_set_prop(struct power_supply *psy,
 
 	switch (psp) {
 	default:
-		pr_err("Set prop %d is not supported in pc_port\n",
+		pr_err_ratelimited("Set prop %d is not supported in pc_port\n",
 				psp);
 		rc = -EINVAL;
 		break;
@@ -2077,10 +2063,6 @@ static int smb5_usb_main_get_prop(struct power_supply *psy,
 		break;
 	/* Use this property to report SMB health */
 	case POWER_SUPPLY_PROP_HEALTH:
-		if (chg->use_bq_pump) {
-			rc = val->intval = -ENODATA;
-			break;
-		}
 		rc = val->intval = smblib_get_prop_smb_health(chg);
 		break;
 	/* Use this property to report overheat status */
@@ -2388,7 +2370,7 @@ static int smb5_init_dc_psy(struct smb5 *chip)
 static int smb5_get_prop_input_voltage_regulation(struct smb_charger *chg,
 					union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	chg->idtp_psy = power_supply_get_by_name("idt");
 	if (chg->idtp_psy) {
@@ -2414,7 +2396,7 @@ static int smb5_get_prop_input_voltage_regulation(struct smb_charger *chg,
 static int smb5_get_prop_input_voltage_vrect(struct smb_charger *chg,
 					union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	chg->idtp_psy = power_supply_get_by_name("idt");
 	if (chg->idtp_psy) {
@@ -2441,7 +2423,7 @@ static int smb5_get_prop_input_voltage_vrect(struct smb_charger *chg,
 static int smb5_get_prop_rx_iout(struct smb_charger *chg,
 					union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	chg->idtp_psy = power_supply_get_by_name("idt");
 	if (chg->idtp_psy) {
@@ -2466,7 +2448,7 @@ static int smb5_get_prop_rx_iout(struct smb_charger *chg,
 static int smb5_get_prop_wireless_signal(struct smb_charger *chg,
 				union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	chg->idtp_psy = power_supply_get_by_name("idt");
 	if (chg->idtp_psy) {
@@ -2489,7 +2471,7 @@ static int smb5_get_prop_wireless_signal(struct smb_charger *chg,
 static int smb5_set_prop_input_voltage_regulation(struct smb_charger *chg,
 				const union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	chg->idtp_psy = power_supply_get_by_name("idt");
 	if (chg->idtp_psy) {
@@ -2559,7 +2541,7 @@ static int smb5_get_prop_reverse_pen_soc(struct smb_charger *chg,
 static int smb5_set_prop_div2_mode(struct smb_charger *chg,
 				const union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	dev_info(chg->dev, "%s: set mode is = %d\n",
 				__func__, val->intval);
@@ -2607,7 +2589,7 @@ static int smb5_get_prop_div2_mode(struct smb_charger *chg,
 static int smb5_set_prop_reverse_chg_mode(struct smb_charger *chg,
 				const union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	dev_info(chg->dev, "%s: set mode is = %d\n",
 				__func__, val->intval);
@@ -2633,7 +2615,7 @@ static int smb5_set_prop_reverse_chg_mode(struct smb_charger *chg,
 static int smb5_set_prop_otg_mode(struct smb_charger *chg,
 				const union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	dev_info(chg->dev, "%s: set mode is = %d\n",
 				__func__, val->intval);
@@ -2659,7 +2641,7 @@ static int smb5_set_prop_otg_mode(struct smb_charger *chg,
 static int smb5_get_prop_reverse_chg_mode(struct smb_charger *chg,
 				union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	chg->idtp_psy = power_supply_get_by_name("idt");
 	if (chg->idtp_psy) {
@@ -2685,7 +2667,7 @@ static int smb5_get_prop_reverse_chg_mode(struct smb_charger *chg,
 static int smb5_get_prop_wirless_chip_ok(struct smb_charger *chg,
 				union power_supply_propval *val)
 {
-	int rc = 0;
+	int rc;
 
 	chg->idtp_psy = power_supply_get_by_name("idt");
 	if (chg->idtp_psy) {
@@ -4039,10 +4021,9 @@ static int smb5_init_connector_type(struct smb_charger *chg)
 	 */
 	if (chg->chg_param.smb_version == PMI632_SUBTYPE) {
 		schgm_flash_init(chg);
+		smblib_rerun_apsd_if_required(chg);
 	}
 
-	smblib_rerun_apsd_if_required(chg);
-	
 	return 0;
 
 }
@@ -5006,6 +4987,7 @@ static int smb5_probe(struct platform_device *pdev)
 	chg->thermal_fcc_override = 0;
 	chg->pd_disabled = 0;
 	chg->apdo_max = 0;
+	chg->quick_charge_type_info = 0;
 	chg->weak_chg_icl_ua = 500000;
 	chg->mode = PARALLEL_MASTER;
 	chg->irq_info = smb5_irqs;
@@ -5203,7 +5185,7 @@ static int smb5_probe(struct platform_device *pdev)
 		goto free_irq;
 	}
 
-	queue_delayed_work(system_power_efficient_wq, &chg->reg_work, 30 * HZ);
+	schedule_delayed_work(&chg->reg_work, 30 * HZ);
 	pr_info("QPNP SMB5 probed successfully\n");
 
 	return rc;
