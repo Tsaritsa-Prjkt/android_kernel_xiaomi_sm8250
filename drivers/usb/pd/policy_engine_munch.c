@@ -1058,14 +1058,7 @@ static int pd_eval_src_caps(struct usbpd *pd)
 	if (pd->peer_usb_comm && pd->current_dr == DR_UFP && !pd->pd_connected)
 		start_usb_peripheral(pd);
 
-	/* Select the first PDO (vSafe5V) immediately. */
-	/* Select thr first PDO for zimi adapter*/
-	//if (pd->batt_2s && pd->adapter_id == 0xA819)
-		//pd_select_pdo(pd, 2, 0, 0);
-//	else if (pd->request_reject == 1)
-	//	;
-	//else
-		pd_select_pdo(pd, 1, 0, 0);
+	pd_select_pdo(pd, 1, 0, 0);
 
 	return 0;
 }
@@ -4455,7 +4448,7 @@ static ssize_t select_pdo_store(struct device *dev,
 	struct usbpd *pd = dev_get_drvdata(dev);
 	int src_cap_id;
 	int pdo, uv = 0, ua = 0;
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&pd->swap_lock);
 
@@ -5310,7 +5303,7 @@ EXPORT_SYMBOL(usbpd_fetch_pdo);
 
 int usbpd_select_pdo(struct usbpd *pd, int pdo, int uv, int ua)
 {
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&pd->swap_lock);
 

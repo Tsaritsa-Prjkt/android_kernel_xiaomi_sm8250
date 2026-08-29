@@ -911,7 +911,7 @@ int smblib_set_fastcharge_mode(struct smb_charger *chg, bool enable)
 {
 	union power_supply_propval pval = {0,};
 	int rc = 0;
-	int termi = -220, batt_temp;
+	int termi = -220, batt_temp = 0;
 	int effective_fv = 0;
 
 	if (!chg->bms_psy)
@@ -3162,7 +3162,8 @@ int smblib_get_prop_batt_charge_done(struct smb_charger *chg,
 			if ((smblib_get_fastcharge_mode(chg) == true)
 				&& (pval.intval >= 98))
 				smblib_set_fastcharge_mode(chg, false);
-				return 0;
+				
+			return 0;
 		}
 
 		if (smblib_get_fastcharge_mode(chg) == true)
@@ -3341,7 +3342,7 @@ static void smblib_set_wireless_present(struct smb_charger *chg, bool present)
 int smblib_get_prop_wireless_version(struct smb_charger *chg,
 				     union power_supply_propval *val)
 {
-	int rc;
+	int rc = 0;
 
 	chg->idtp_psy = power_supply_get_by_name("idt");
 	if (chg->idtp_psy) {
@@ -3363,7 +3364,7 @@ int smblib_get_prop_wireless_version(struct smb_charger *chg,
 int smblib_get_prop_wireless_fw_version(struct smb_charger *chg,
 				     union power_supply_propval *val)
 {
-	int rc;
+	int rc = 0;
 
 	chg->idtp_psy = power_supply_get_by_name("idt");
 	if (chg->idtp_psy) {
@@ -4681,7 +4682,7 @@ static int smblib_update_thermal_readings(struct smb_charger *chg)
 int smblib_set_vbus_disable(struct smb_charger *chg,
 					bool disable)
 {
-	int ret;
+	int ret = 0;
 
 	smblib_dbg(chg, PR_OEM, "set vbus disable:%d\n", disable);
 	if (disable) {
@@ -4797,7 +4798,7 @@ static void smblib_after_ffc_chg_dis_work(struct work_struct *work)
 			after_ffc_chg_dis_work.work);
 	union power_supply_propval pval = {0, };
 	int rc = 0;
-	u64 delta_us;
+	u64 delta_us = 0;
 	static int count;
 
 	if (!chg->last_ffc_remove_time)
@@ -5192,7 +5193,7 @@ exit:
 int smblib_get_prop_voltage_wls_output(struct smb_charger *chg,
 				    union power_supply_propval *val)
 {
-	int rc;
+	int rc = 0;
 
 	if (chg->wireless_bq)
 		return rc;
@@ -5327,7 +5328,7 @@ int smblib_get_prop_dc_voltage_max(struct smb_charger *chg,
 int smblib_get_prop_dc_voltage_now(struct smb_charger *chg,
 				    union power_supply_propval *val)
 {
-	int rc;
+	int rc = 0;
 
 	if (chg->wireless_bq)
 		return rc;
@@ -5368,7 +5369,7 @@ int smblib_set_prop_dc_current_max(struct smb_charger *chg,
 int smblib_set_prop_voltage_wls_output(struct smb_charger *chg,
 				    const union power_supply_propval *val)
 {
-	int rc;
+	int rc = 0;
 
 	if (chg->wireless_bq)
 		return rc;
@@ -5406,7 +5407,7 @@ int smblib_set_prop_voltage_wls_output(struct smb_charger *chg,
 
 int smblib_set_prop_dc_reset(struct smb_charger *chg)
 {
-	int rc;
+	int rc = 0;
 
 	if (chg->wireless_bq)
 		return rc;
@@ -5697,7 +5698,7 @@ int smblib_get_prop_usb_online(struct smb_charger *chg,
 int smblib_get_usb_online(struct smb_charger *chg,
 			union power_supply_propval *val)
 {
-	int rc;
+	int rc = 0;
 
 	if (chg->report_input_absent) {
 		val->intval = 0;
@@ -6777,8 +6778,10 @@ static int smblib_handle_usb_current(struct smb_charger *chg,
 			smblib_err(chg, "Couldn't vote ICL USB_PSY_VOTER rc=%d\n", rc);
 			return rc;
 		}
-	if (chg->mtbf_current  >= 1500)
-		vote(chg->usb_icl_votable, USB_PSY_VOTER, true, chg->mtbf_current*1000);
+
+		if (chg->mtbf_current  >= 1500)
+			vote(chg->usb_icl_votable, USB_PSY_VOTER, true, chg->mtbf_current*1000);
+
 		rc = vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, false, 0);
 		if (rc < 0) {
 			smblib_err(chg, "Couldn't remove SW_ICL_MAX vote rc=%d\n", rc);
@@ -8172,7 +8175,7 @@ static void check_batt_missing(struct work_struct *work)
 	union power_supply_propval pval = {
 		0,
 	};
-	int chip_ok, rc;
+	int chip_ok, rc = 0;
 
 	if (chg->bms_psy) {
 		rc = power_supply_get_property(
@@ -9285,12 +9288,15 @@ static void update_sw_icl_max(struct smb_charger *chg, int pst)
 			vote(chg->usb_icl_votable, USB_PSY_VOTER, true, SDP_CURRENT_UA);
 			vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, false, 0);
 		} else if ((chg->typec_mode == POWER_SUPPLY_TYPEC_NONE)
-				&& (val.intval == 1))
+				&& (val.intval == 1)) {
 			vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true, SDP_CURRENT_UA);
-		else
+		} else {
 			vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, false, 0);
-	if (chg->mtbf_current  >= 1500)
-		vote(chg->usb_icl_votable, USB_PSY_VOTER, true, chg->mtbf_current*1000);
+		}
+
+		if (chg->mtbf_current  >= 1500)
+			vote(chg->usb_icl_votable, USB_PSY_VOTER, true, chg->mtbf_current*1000);
+
 		break;
 	case POWER_SUPPLY_TYPE_USB_CDP:
 		vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
@@ -10568,25 +10574,25 @@ static void smblib_charger_type_recheck(struct work_struct *work)
 	if (smblib_get_prop_dfp_mode(chg) != POWER_SUPPLY_TYPEC_NONE)
 		goto check_next;
 
-		if (chg->typec_port && !chg->pr_swap_in_progress) {
+	if (chg->typec_port && !chg->pr_swap_in_progress) {
 
-			/*
-			 * Schedule the work to differentiate actual removal
-			 * of cable and detach interrupt during role swap,
-			 * unregister the partner only during actual cable
-			 * removal.
-			 */
-			cancel_delayed_work(&chg->pr_swap_detach_work);
-			vote(chg->awake_votable, DETACH_DETECT_VOTER, true, 0);
-			schedule_delayed_work(&chg->pr_swap_detach_work,
-				msecs_to_jiffies(TYPEC_DETACH_DETECT_DELAY_MS));
-			smblib_force_dr_mode(chg, TYPEC_PORT_DRP);
-			/*
-			 * To handle cable removal during role
-			 * swap failure.
-			 */
-			chg->typec_role_swap_failed = false;
-		}
+		/*
+		 * Schedule the work to differentiate actual removal
+		 * of cable and detach interrupt during role swap,
+		 * unregister the partner only during actual cable
+		 * removal.
+		 */
+		cancel_delayed_work(&chg->pr_swap_detach_work);
+		vote(chg->awake_votable, DETACH_DETECT_VOTER, true, 0);
+		schedule_delayed_work(&chg->pr_swap_detach_work,
+			msecs_to_jiffies(TYPEC_DETACH_DETECT_DELAY_MS));
+		smblib_force_dr_mode(chg, TYPEC_PORT_DRP);
+		/*
+		 * To handle cable removal during role
+		 * swap failure.
+		 */
+		chg->typec_role_swap_failed = false;
+	}
 
 	if (!chg->recheck_charger)
 		chg->precheck_charger_type = chg->real_charger_type;
