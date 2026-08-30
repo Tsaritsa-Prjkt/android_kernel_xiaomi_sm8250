@@ -46,6 +46,9 @@ KERNEL_DEFCONFIG_HEAD=$(git -C ${KERNEL_CFG} rev-parse HEAD)
 SOC="kona"
 if [ -n  "$*" ]; then
   case "$1" in
+    pipa)
+      DEVICE=$1;
+    ;;
     alioth)
       DEVICE=$1;
     ;;
@@ -134,48 +137,51 @@ HEAD of the project used to prepare this commit:
 ${KERNEL_DEFCONFIG_URL}/tree/${KERNEL_DEFCONFIG_HEAD}
 EOM
 
-  DEVICES="alioth apollo cas cmi dagu elish enuma lmi munch umi thyme psyche"
+  DEVICES="pipa alioth apollo cas cmi dagu elish enuma lmi munch umi thyme psyche"
 
   for device in $DEVICES; do \
 
     case $device in
-      alioth)
-        DEVICE=$device;
-      ;;
-      apollo)
-        DEVICE=$device;
-      ;;
-      cas)
-        DEVICE=$device;
-      ;;
-      cmi)
-        DEVICE=$device;
-      ;;
-      dagu)
-        DEVICE=$device;
-      ;;
-      elish)
-        DEVICE=$device;
-      ;;
-      enuma)
-        DEVICE=$device;
-      ;;
-      lmi)
-        DEVICE=$device;
-      ;;
-      munch)
-        DEVICE=$device;
-      ;;
-      umi)
-        DEVICE=$device;
-      ;;
-      thyme)
-        DEVICE=$device;
-      ;;
-      psyche)
-        DEVICE=$device;
-      ;;
-    esac
+    pipa)
+      DEVICE=$1;
+    ;;
+    alioth)
+      DEVICE=$1;
+    ;;
+    apollo)
+      DEVICE=$1;
+    ;;
+    cas)
+      DEVICE=$1;
+    ;;
+    cmi)
+      DEVICE=$1;
+    ;;
+    dagu)
+      DEVICE=$1;
+    ;;
+    elish)
+      DEVICE=$1;
+    ;;
+    enuma)
+      DEVICE=$1;
+    ;;
+    lmi)
+      DEVICE=$1;
+    ;;
+    munch)
+      DEVICE=$1;
+    ;;
+    umi)
+      DEVICE=$1;
+    ;;
+    thyme)
+      DEVICE=$1;
+    ;;
+    psyche)
+      DEVICE=$1;
+    ;;
+  esac
 
     echo "================================================="
     echo "Your Environment:"
