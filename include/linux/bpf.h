@@ -995,6 +995,7 @@ struct bpf_array {
 	u32 elem_size;
 	u32 index_mask;
 	struct bpf_array_aux *aux;
+	enum bpf_attach_type owner_attach_type;
 	union {
 		char value[0] __aligned(8);
 		void *ptrs[0] __aligned(8);

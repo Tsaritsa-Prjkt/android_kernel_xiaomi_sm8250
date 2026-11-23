@@ -18,70 +18,70 @@
 #include <linux/sched/sysctl.h>
 
 struct sugov_tunables {
-	struct gov_attr_set	attr_set;
-	unsigned int		up_rate_limit_us;
-	unsigned int		down_rate_limit_us;
-	unsigned int		hispeed_load;
-	unsigned int		hispeed_freq;
-	unsigned int		rtg_boost_freq;
-	bool			pl;
+	struct gov_attr_set attr_set;
+	unsigned int        up_rate_limit_us;
+	unsigned int        down_rate_limit_us;
+	unsigned int        hispeed_load;
+	unsigned int        hispeed_freq;
+	unsigned int        rtg_boost_freq;
+	bool            pl;
 };
 
 struct sugov_policy {
-	struct cpufreq_policy	*policy;
+	struct cpufreq_policy   *policy;
 
 	u64 last_ws;
 	u64 curr_cycles;
 	u64 last_cyc_update_time;
 	unsigned long avg_cap;
-	struct sugov_tunables	*tunables;
-	struct list_head	tunables_hook;
+	struct sugov_tunables   *tunables;
+	struct list_head    tunables_hook;
 	unsigned long hispeed_util;
 	unsigned long rtg_boost_util;
 	unsigned long max;
 
-	raw_spinlock_t		update_lock;	/* For shared policies */
-	u64			last_freq_update_time;
-	s64			min_rate_limit_ns;
-	s64			up_rate_delay_ns;
-	s64			down_rate_delay_ns;
-	unsigned int		next_freq;
-	unsigned int		cached_raw_freq;
-	unsigned int		prev_cached_raw_freq;
+	raw_spinlock_t      update_lock;    /* For shared policies */
+	u64         last_freq_update_time;
+	s64         min_rate_limit_ns;
+	s64         up_rate_delay_ns;
+	s64         down_rate_delay_ns;
+	unsigned int        next_freq;
+	unsigned int        cached_raw_freq;
+	unsigned int        prev_cached_raw_freq;
 
 	/* The next fields are only needed if fast switch cannot be used: */
-	struct			irq_work irq_work;
-	struct			kthread_work work;
-	struct			mutex work_lock;
-	struct			kthread_worker worker;
-	struct task_struct	*thread;
-	bool			work_in_progress;
+	struct          irq_work irq_work;
+	struct          kthread_work work;
+	struct          mutex work_lock;
+	struct          kthread_worker worker;
+	struct task_struct  *thread;
+	bool            work_in_progress;
 
-	bool			limits_changed;
-	bool			need_freq_update;
+	bool            limits_changed;
+	bool            need_freq_update;
 };
 
 struct sugov_cpu {
-	struct update_util_data	update_util;
-	struct sugov_policy	*sg_policy;
-	unsigned int		cpu;
+	struct update_util_data update_util;
+	struct sugov_policy *sg_policy;
+	unsigned int        cpu;
 
-	bool			iowait_boost_pending;
-	unsigned int		iowait_boost;
-	u64			last_update;
+	bool            iowait_boost_pending;
+	unsigned int        iowait_boost;
+	u64         last_update;
 
 	struct sched_walt_cpu_load walt_load;
 
 	unsigned long util;
 	unsigned int flags;
 
-	unsigned long		bw_dl;
-	unsigned long		min;
-	unsigned long		max;
+	unsigned long       bw_dl;
+	unsigned long       min;
+	unsigned long       max;
 
 	/* The field below is for single-CPU policies only: */
 #ifdef CONFIG_NO_HZ_COMMON
-	unsigned long		saved_idle_calls;
+	unsigned long       saved_idle_calls;
 #endif
 };
 
@@ -90,6 +90,19 @@ static unsigned int stale_ns;
 static DEFINE_PER_CPU(struct sugov_tunables *, cached_tunables);
 
 /************************ Governor internals ***********************/
+
+static void sugov_update_rate_limit_us(struct sugov_policy *sg_policy)
+{
+	struct sugov_tunables *tunables = sg_policy->tunables;
+	s64 up_delay_ns, down_delay_ns;
+
+	/* Widen before multiplying so large limits also work on 32-bit builds. */
+	up_delay_ns = (s64)tunables->up_rate_limit_us * NSEC_PER_USEC;
+	down_delay_ns = (s64)tunables->down_rate_limit_us * NSEC_PER_USEC;
+	WRITE_ONCE(sg_policy->up_rate_delay_ns, up_delay_ns);
+	WRITE_ONCE(sg_policy->down_rate_delay_ns, down_delay_ns);
+	WRITE_ONCE(sg_policy->min_rate_limit_ns, min(up_delay_ns, down_delay_ns));
+}
 
 static bool sugov_should_update_freq(struct sugov_policy *sg_policy, u64 time)
 {
@@ -137,7 +150,7 @@ static bool sugov_should_update_freq(struct sugov_policy *sg_policy, u64 time)
 	 */
 
 	delta_ns = time - sg_policy->last_freq_update_time;
-	return delta_ns >= sg_policy->min_rate_limit_ns;
+	return delta_ns >= READ_ONCE(sg_policy->min_rate_limit_ns);
 }
 
 static inline bool use_pelt(void)
@@ -159,18 +172,18 @@ static inline bool conservative_pl(void)
 }
 
 static bool sugov_up_down_rate_limit(struct sugov_policy *sg_policy, u64 time,
-				     unsigned int next_freq)
+					 unsigned int next_freq)
 {
 	s64 delta_ns;
 
 	delta_ns = time - sg_policy->last_freq_update_time;
 
 	if (next_freq > sg_policy->next_freq &&
-	    delta_ns < sg_policy->up_rate_delay_ns)
+		delta_ns < READ_ONCE(sg_policy->up_rate_delay_ns))
 			return true;
 
 	if (next_freq < sg_policy->next_freq &&
-	    delta_ns < sg_policy->down_rate_delay_ns)
+		delta_ns < READ_ONCE(sg_policy->down_rate_delay_ns))
 			return true;
 
 	return false;
@@ -251,7 +264,7 @@ static void sugov_calc_avg_cap(struct sugov_policy *sg_policy, u64 curr_ws,
 }
 
 static void sugov_fast_switch(struct sugov_policy *sg_policy, u64 time,
-			      unsigned int next_freq)
+				  unsigned int next_freq)
 {
 	struct cpufreq_policy *policy = sg_policy->policy;
 	unsigned int cpu;
@@ -359,7 +372,7 @@ unsigned long schedutil_cpu_util(int cpu, unsigned long util_cfs,
 	struct rq *rq = cpu_rq(cpu);
 
 	if (!uclamp_is_used() &&
-	    type == FREQUENCY_UTIL && rt_rq_is_runnable(&rq->rt)) {
+		type == FREQUENCY_UTIL && rt_rq_is_runnable(&rq->rt)) {
 		return max;
 	}
 
@@ -480,7 +493,7 @@ static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
  * energy efficiency by ignoring sporadic wakeups from IO.
  */
 static bool sugov_iowait_reset(struct sugov_cpu *sg_cpu, u64 time,
-			       bool set_iowait_boost)
+				   bool set_iowait_boost)
 {
 	s64 delta_ns = time - sg_cpu->last_update;
 
@@ -508,13 +521,13 @@ static bool sugov_iowait_reset(struct sugov_cpu *sg_cpu, u64 time,
  * otherwise we restart from the utilization of the minimum OPP.
  */
 static void sugov_iowait_boost(struct sugov_cpu *sg_cpu, u64 time,
-			       unsigned int flags)
+				   unsigned int flags)
 {
 	bool set_iowait_boost = flags & SCHED_CPUFREQ_IOWAIT;
 
 	/* Reset boost if the CPU appears to have been idle enough */
 	if (sg_cpu->iowait_boost &&
-	    sugov_iowait_reset(sg_cpu, time, set_iowait_boost))
+		sugov_iowait_reset(sg_cpu, time, set_iowait_boost))
 		return;
 
 	/* Boost only tasks waking up after IO */
@@ -547,7 +560,7 @@ static void sugov_iowait_boost(struct sugov_cpu *sg_cpu, u64 time,
  * A CPU running a task which woken up after an IO operation can have its
  * utilization boosted to speed up the completion of those IO operations.
  * The IO boost value is increased each time a task wakes up from IO, in
- * sugov_iowait_apply(), and it's instead decreased by this function,
+ * sugov_iowait_boost(), and it's instead decreased by this function,
  * each time an increase has not been requested (!iowait_boost_pending).
  *
  * A CPU which also appears to have been idle for at least one tick has also
@@ -609,7 +622,7 @@ static inline bool sugov_cpu_is_busy(struct sugov_cpu *sg_cpu) { return false; }
 #define DEFAULT_CPU4_RTG_BOOST_FREQ 0
 #define DEFAULT_CPU7_RTG_BOOST_FREQ 0
 static void sugov_walt_adjust(struct sugov_cpu *sg_cpu, unsigned long *util,
-			      unsigned long *max)
+				  unsigned long *max)
 {
 	struct sugov_policy *sg_policy = sg_cpu->sg_policy;
 	bool is_migration = sg_cpu->flags & SCHED_CPUFREQ_INTERCLUSTER_MIG;
@@ -693,11 +706,11 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 	if (sg_policy->max != max) {
 		sg_policy->max = max;
 		hs_util = target_util(sg_policy,
-				       sg_policy->tunables->hispeed_freq);
+					   sg_policy->tunables->hispeed_freq);
 		sg_policy->hispeed_util = hs_util;
 
 		boost_util = target_util(sg_policy,
-				    sg_policy->tunables->rtg_boost_freq);
+					sg_policy->tunables->rtg_boost_freq);
 		sg_policy->rtg_boost_util = boost_util;
 	}
 
@@ -808,7 +821,7 @@ sugov_update_shared(struct update_util_data *hook, u64 time, unsigned int flags)
 		sg_policy->hispeed_util = hs_util;
 
 		boost_util = target_util(sg_policy,
-				    sg_policy->tunables->rtg_boost_freq);
+					sg_policy->tunables->rtg_boost_freq);
 		sg_policy->rtg_boost_util = boost_util;
 	}
 
@@ -825,7 +838,7 @@ sugov_update_shared(struct update_util_data *hook, u64 time, unsigned int flags)
 				sg_cpu->walt_load.rtgb_active, flags);
 
 	if (sugov_should_update_freq(sg_policy, time) &&
-	    !(flags & SCHED_CPUFREQ_CONTINUE)) {
+		!(flags & SCHED_CPUFREQ_CONTINUE)) {
 		next_f = sugov_next_freq_shared(sg_cpu, time);
 
 		if (sg_policy->policy->fast_switch_enabled)
@@ -885,16 +898,6 @@ static inline struct sugov_tunables *to_sugov_tunables(struct gov_attr_set *attr
 	return container_of(attr_set, struct sugov_tunables, attr_set);
 }
 
-static DEFINE_MUTEX(min_rate_lock);
-
-static void update_min_rate_limit_ns(struct sugov_policy *sg_policy)
-{
-	mutex_lock(&min_rate_lock);
-	sg_policy->min_rate_limit_ns = min(sg_policy->up_rate_delay_ns,
-					   sg_policy->down_rate_delay_ns);
-	mutex_unlock(&min_rate_lock);
-}
-
 static ssize_t up_rate_limit_us_show(struct gov_attr_set *attr_set, char *buf)
 {
 	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
@@ -910,7 +913,7 @@ static ssize_t down_rate_limit_us_show(struct gov_attr_set *attr_set, char *buf)
 }
 
 static ssize_t up_rate_limit_us_store(struct gov_attr_set *attr_set,
-				      const char *buf, size_t count)
+					  const char *buf, size_t count)
 {
 	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
 	struct sugov_policy *sg_policy;
@@ -921,10 +924,8 @@ static ssize_t up_rate_limit_us_store(struct gov_attr_set *attr_set,
 
 	tunables->up_rate_limit_us = rate_limit_us;
 
-	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
-		sg_policy->up_rate_delay_ns = rate_limit_us * NSEC_PER_USEC;
-		update_min_rate_limit_ns(sg_policy);
-	}
+	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook)
+		sugov_update_rate_limit_us(sg_policy);
 
 	return count;
 }
@@ -941,10 +942,8 @@ static ssize_t down_rate_limit_us_store(struct gov_attr_set *attr_set,
 
 	tunables->down_rate_limit_us = rate_limit_us;
 
-	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
-		sg_policy->down_rate_delay_ns = rate_limit_us * NSEC_PER_USEC;
-		update_min_rate_limit_ns(sg_policy);
-	}
+	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook)
+		sugov_update_rate_limit_us(sg_policy);
 
 	return count;
 }
@@ -1011,7 +1010,7 @@ static ssize_t rtg_boost_freq_show(struct gov_attr_set *attr_set, char *buf)
 }
 
 static ssize_t rtg_boost_freq_store(struct gov_attr_set *attr_set,
-				    const char *buf, size_t count)
+					const char *buf, size_t count)
 {
 	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
 	unsigned int val;
@@ -1340,26 +1339,26 @@ static int sugov_start(struct cpufreq_policy *policy)
 	struct sugov_policy *sg_policy = policy->governor_data;
 	unsigned int cpu;
 
-	sg_policy->up_rate_delay_ns =
-		sg_policy->tunables->up_rate_limit_us * NSEC_PER_USEC;
-	sg_policy->down_rate_delay_ns =
-		sg_policy->tunables->down_rate_limit_us * NSEC_PER_USEC;
-	update_min_rate_limit_ns(sg_policy);
-	sg_policy->last_freq_update_time	= 0;
-	sg_policy->next_freq			= 0;
-	sg_policy->work_in_progress		= false;
-	sg_policy->limits_changed		= false;
-	sg_policy->need_freq_update		= false;
-	sg_policy->cached_raw_freq		= 0;
-	sg_policy->prev_cached_raw_freq		= 0;
+	/* Serialize with rate-limit writes through sysfs. */
+	mutex_lock(&sg_policy->tunables->attr_set.update_lock);
+	sugov_update_rate_limit_us(sg_policy);
+	mutex_unlock(&sg_policy->tunables->attr_set.update_lock);
+
+	sg_policy->last_freq_update_time    = 0;
+	sg_policy->next_freq            = 0;
+	sg_policy->work_in_progress     = false;
+	sg_policy->limits_changed       = false;
+	sg_policy->need_freq_update     = false;
+	sg_policy->cached_raw_freq      = 0;
+	sg_policy->prev_cached_raw_freq     = 0;
 
 	for_each_cpu(cpu, policy->cpus) {
 		struct sugov_cpu *sg_cpu = &per_cpu(sugov_cpu, cpu);
 
 		memset(sg_cpu, 0, sizeof(*sg_cpu));
-		sg_cpu->cpu			= cpu;
-		sg_cpu->sg_policy		= sg_policy;
-		sg_cpu->min			=
+		sg_cpu->cpu         = cpu;
+		sg_cpu->sg_policy       = sg_policy;
+		sg_cpu->min         =
 			(SCHED_CAPACITY_SCALE * policy->cpuinfo.min_freq) /
 			policy->cpuinfo.max_freq;
 	}
@@ -1368,7 +1367,7 @@ static int sugov_start(struct cpufreq_policy *policy)
 		struct sugov_cpu *sg_cpu = &per_cpu(sugov_cpu, cpu);
 
 		cpufreq_add_update_util_hook(cpu, &sg_cpu->update_util,
-					     policy_is_shared(policy) ?
+						 policy_is_shared(policy) ?
 							sugov_update_shared :
 							sugov_update_single);
 	}
@@ -1433,14 +1432,14 @@ static void sugov_limits(struct cpufreq_policy *policy)
 }
 
 static struct cpufreq_governor schedutil_gov = {
-	.name			= "schedutil",
-	.owner			= THIS_MODULE,
-	.dynamic_switching	= true,
-	.init			= sugov_init,
-	.exit			= sugov_exit,
-	.start			= sugov_start,
-	.stop			= sugov_stop,
-	.limits			= sugov_limits,
+	.name           = "schedutil",
+	.owner          = THIS_MODULE,
+	.dynamic_switching  = true,
+	.init           = sugov_init,
+	.exit           = sugov_exit,
+	.start          = sugov_start,
+	.stop           = sugov_stop,
+	.limits         = sugov_limits,
 };
 
 #ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL

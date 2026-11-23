@@ -35,7 +35,7 @@ static inline struct bpf_lwt *bpf_lwt_lwtunnel(struct lwtunnel_state *lwt)
 #define CAN_REDIRECT true
 
 static int run_lwt_bpf(struct sk_buff *skb, struct bpf_lwt_prog *lwt,
-		       struct dst_entry *dst, bool can_redirect)
+			   struct dst_entry *dst, bool can_redirect)
 {
 	int ret;
 
@@ -55,7 +55,7 @@ static int run_lwt_bpf(struct sk_buff *skb, struct bpf_lwt_prog *lwt,
 	case BPF_REDIRECT:
 		if (unlikely(!can_redirect)) {
 			pr_warn_once("Illegal redirect return code in prog %s\n",
-				     lwt->name ? : "<unknown>");
+					 lwt->name ? : "<unknown>");
 			ret = BPF_OK;
 		} else {
 			skb_reset_mac_header(skb);
@@ -149,7 +149,7 @@ static int bpf_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 
 	if (unlikely(!dst->lwtstate->orig_output)) {
 		pr_warn_once("orig_output not set on dst for prog %s\n",
-			     bpf->out.name);
+				 bpf->out.name);
 		kfree_skb(skb);
 		return -EINVAL;
 	}
@@ -157,10 +157,10 @@ static int bpf_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 	return dst->lwtstate->orig_output(net, sk, skb);
 }
 
-static int xmit_check_hhlen(struct sk_buff *skb, int hh_len)
+static int xmit_check_headroom(struct sk_buff *skb, int hroom)
 {
-	if (skb_headroom(skb) < hh_len) {
-		int nhead = HH_DATA_ALIGN(hh_len - skb_headroom(skb));
+	if (skb_headroom(skb) < hroom) {
+		int nhead = hroom - skb_headroom(skb);
 
 		if (pskb_expand_head(skb, nhead, 0, GFP_ATOMIC))
 			return -ENOMEM;
@@ -272,7 +272,7 @@ static int bpf_xmit(struct sk_buff *skb)
 
 	bpf = bpf_lwt_lwtunnel(dst->lwtstate);
 	if (bpf->xmit.prog) {
-		int hh_len = dst->dev->hard_header_len;
+		int hroom = LL_RESERVED_SPACE(dst->dev);
 		__be16 proto = skb->protocol;
 		int ret;
 
@@ -288,9 +288,12 @@ static int bpf_xmit(struct sk_buff *skb)
 				return -EINVAL;
 			}
 			/* If the header was expanded, headroom might be too
-			 * small for L2 header to come, expand as needed.
+			 * small for the L2 header to come, expand as needed.
+			 * neigh_hh_output() copies the cached header in
+			 * HH_DATA_MOD aligned chunks, so match the reservation
+			 * made before LWT xmit.
 			 */
-			ret = xmit_check_hhlen(skb, hh_len);
+			ret = xmit_check_headroom(skb, hroom);
 			if (unlikely(ret))
 				return ret;
 
@@ -361,10 +364,10 @@ static int bpf_parse_prog(struct nlattr *attr, struct bpf_lwt_prog *prog,
 }
 
 static const struct nla_policy bpf_nl_policy[LWT_BPF_MAX + 1] = {
-	[LWT_BPF_IN]		= { .type = NLA_NESTED, },
-	[LWT_BPF_OUT]		= { .type = NLA_NESTED, },
-	[LWT_BPF_XMIT]		= { .type = NLA_NESTED, },
-	[LWT_BPF_XMIT_HEADROOM]	= { .type = NLA_U32 },
+	[LWT_BPF_IN]        = { .type = NLA_NESTED, },
+	[LWT_BPF_OUT]       = { .type = NLA_NESTED, },
+	[LWT_BPF_XMIT]      = { .type = NLA_NESTED, },
+	[LWT_BPF_XMIT_HEADROOM] = { .type = NLA_U32 },
 };
 
 static int bpf_build_state(struct net *net, struct nlattr *nla,
@@ -398,7 +401,7 @@ static int bpf_build_state(struct net *net, struct nlattr *nla,
 	if (tb[LWT_BPF_IN]) {
 		newts->flags |= LWTUNNEL_STATE_INPUT_REDIRECT;
 		ret = bpf_parse_prog(tb[LWT_BPF_IN], &bpf->in,
-				     BPF_PROG_TYPE_LWT_IN);
+					 BPF_PROG_TYPE_LWT_IN);
 		if (ret  < 0)
 			goto errout;
 	}
@@ -406,7 +409,7 @@ static int bpf_build_state(struct net *net, struct nlattr *nla,
 	if (tb[LWT_BPF_OUT]) {
 		newts->flags |= LWTUNNEL_STATE_OUTPUT_REDIRECT;
 		ret = bpf_parse_prog(tb[LWT_BPF_OUT], &bpf->out,
-				     BPF_PROG_TYPE_LWT_OUT);
+					 BPF_PROG_TYPE_LWT_OUT);
 		if (ret < 0)
 			goto errout;
 	}
@@ -414,7 +417,7 @@ static int bpf_build_state(struct net *net, struct nlattr *nla,
 	if (tb[LWT_BPF_XMIT]) {
 		newts->flags |= LWTUNNEL_STATE_XMIT_REDIRECT;
 		ret = bpf_parse_prog(tb[LWT_BPF_XMIT], &bpf->xmit,
-				     BPF_PROG_TYPE_LWT_XMIT);
+					 BPF_PROG_TYPE_LWT_XMIT);
 		if (ret < 0)
 			goto errout;
 	}
@@ -442,7 +445,7 @@ errout:
 }
 
 static int bpf_fill_lwt_prog(struct sk_buff *skb, int attr,
-			     struct bpf_lwt_prog *prog)
+				 struct bpf_lwt_prog *prog)
 {
 	struct nlattr *nest;
 
@@ -454,7 +457,7 @@ static int bpf_fill_lwt_prog(struct sk_buff *skb, int attr,
 		return -EMSGSIZE;
 
 	if (prog->name &&
-	    nla_put_string(skb, LWT_BPF_PROG_NAME, prog->name))
+		nla_put_string(skb, LWT_BPF_PROG_NAME, prog->name))
 		return -EMSGSIZE;
 
 	return nla_nest_end(skb, nest);
@@ -465,8 +468,8 @@ static int bpf_fill_encap_info(struct sk_buff *skb, struct lwtunnel_state *lwt)
 	struct bpf_lwt *bpf = bpf_lwt_lwtunnel(lwt);
 
 	if (bpf_fill_lwt_prog(skb, LWT_BPF_IN, &bpf->in) < 0 ||
-	    bpf_fill_lwt_prog(skb, LWT_BPF_OUT, &bpf->out) < 0 ||
-	    bpf_fill_lwt_prog(skb, LWT_BPF_XMIT, &bpf->xmit) < 0)
+		bpf_fill_lwt_prog(skb, LWT_BPF_OUT, &bpf->out) < 0 ||
+		bpf_fill_lwt_prog(skb, LWT_BPF_XMIT, &bpf->xmit) < 0)
 		return -EMSGSIZE;
 
 	return 0;
@@ -475,13 +478,13 @@ static int bpf_fill_encap_info(struct sk_buff *skb, struct lwtunnel_state *lwt)
 static int bpf_encap_nlsize(struct lwtunnel_state *lwtstate)
 {
 	int nest_len = nla_total_size(sizeof(struct nlattr)) +
-		       nla_total_size(MAX_PROG_NAME) + /* LWT_BPF_PROG_NAME */
-		       0;
+			   nla_total_size(MAX_PROG_NAME) + /* LWT_BPF_PROG_NAME */
+			   0;
 
 	return nest_len + /* LWT_BPF_IN */
-	       nest_len + /* LWT_BPF_OUT */
-	       nest_len + /* LWT_BPF_XMIT */
-	       0;
+		   nest_len + /* LWT_BPF_OUT */
+		   nest_len + /* LWT_BPF_XMIT */
+		   0;
 }
 
 static int bpf_lwt_prog_cmp(struct bpf_lwt_prog *a, struct bpf_lwt_prog *b)
@@ -505,20 +508,20 @@ static int bpf_encap_cmp(struct lwtunnel_state *a, struct lwtunnel_state *b)
 	struct bpf_lwt *b_bpf = bpf_lwt_lwtunnel(b);
 
 	return bpf_lwt_prog_cmp(&a_bpf->in, &b_bpf->in) ||
-	       bpf_lwt_prog_cmp(&a_bpf->out, &b_bpf->out) ||
-	       bpf_lwt_prog_cmp(&a_bpf->xmit, &b_bpf->xmit);
+		   bpf_lwt_prog_cmp(&a_bpf->out, &b_bpf->out) ||
+		   bpf_lwt_prog_cmp(&a_bpf->xmit, &b_bpf->xmit);
 }
 
 static const struct lwtunnel_encap_ops bpf_encap_ops = {
-	.build_state	= bpf_build_state,
-	.destroy_state	= bpf_destroy_state,
-	.input		= bpf_input,
-	.output		= bpf_output,
-	.xmit		= bpf_xmit,
-	.fill_encap	= bpf_fill_encap_info,
+	.build_state    = bpf_build_state,
+	.destroy_state  = bpf_destroy_state,
+	.input      = bpf_input,
+	.output     = bpf_output,
+	.xmit       = bpf_xmit,
+	.fill_encap = bpf_fill_encap_info,
 	.get_encap_size = bpf_encap_nlsize,
-	.cmp_encap	= bpf_encap_cmp,
-	.owner		= THIS_MODULE,
+	.cmp_encap  = bpf_encap_cmp,
+	.owner      = THIS_MODULE,
 };
 
 static int handle_gso_type(struct sk_buff *skb, unsigned int gso_type,
@@ -564,7 +567,7 @@ static int handle_gso_encap(struct sk_buff *skb, bool ipv4, int encap_len)
 
 		if (((struct gre_base_hdr *)next_hdr)->flags & GRE_CSUM)
 			return handle_gso_type(skb, SKB_GSO_GRE_CSUM,
-					       encap_len);
+						   encap_len);
 		return handle_gso_type(skb, SKB_GSO_GRE, encap_len);
 
 	case IPPROTO_UDP:
@@ -574,7 +577,7 @@ static int handle_gso_encap(struct sk_buff *skb, bool ipv4, int encap_len)
 
 		if (((struct udphdr *)next_hdr)->check)
 			return handle_gso_type(skb, SKB_GSO_UDP_TUNNEL_CSUM,
-					       encap_len);
+						   encap_len);
 		return handle_gso_type(skb, SKB_GSO_UDP_TUNNEL, encap_len);
 
 	case IPPROTO_IP:
